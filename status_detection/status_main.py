@@ -1,3 +1,4 @@
+# Squirrel Entrance State Detection main file
 import cv2
 import numpy as np
 from entry import detect_entry
