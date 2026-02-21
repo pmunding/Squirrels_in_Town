@@ -1,6 +1,9 @@
+# Entry detection using Hough Circle Transform
+# This module detects the entrance area in a frame and defines circular masks for entrance, half,
 import cv2
 import numpy as np
 
+# Parameters for circle detection (tune if needed)
 def detect_entry(image):  
     if isinstance(image, str):
         img = cv2.imread(image)
