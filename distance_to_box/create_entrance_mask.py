@@ -1,12 +1,14 @@
+# This script processes a video with pink (squirrel) and cyan (entrance) 
+# overlays to create binary masks,
 import cv2
 import numpy as np
 import pandas as pd
 
-VIDEO_PATH = "sam_distance01.mp4"
+VIDEO_PATH = "trimshortEntrance.mp4"
 OUT_VIDEO  = "video_with_distance.mp4"
 OUT_CSV    = "distances.csv"
 
-# Overlay-Farben (BGR!) – anpassen falls nötig
+# Colors in BGR format (uint8)
 PINK_BGR = np.array([255, 0, 255], dtype=np.uint8)   # magenta/pink = squirrel
 CYAN_BGR = np.array([255, 255, 0], dtype=np.uint8)   # cyan = entrance
 
@@ -16,7 +18,7 @@ TOL_CYAN = 70
 MIN_SQ_PIXELS = 500   # noise filter
 K = 9                 # kernel size for morphology
 
-
+# Note: this is a simple color-based mask. Adjust TOL_* if mask looks empty or noisy.
 def mask_from_overlay_color(frame_bgr, target_bgr, tol):
     """Binary mask where pixels are close to target BGR (uint8)."""
     frame_bgr = frame_bgr.astype(np.uint8)
@@ -33,7 +35,7 @@ def mask_from_overlay_color(frame_bgr, target_bgr, tol):
     mask = (dist < (3 * tol)).astype(np.uint8) * 255
     return mask
 
-
+# Sometimes the entrance is just an outline, so we want to fill it to get a solid mask.
 def fill_mask(mask):
     """Fill blobs by contour fill."""
     cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -42,7 +44,7 @@ def fill_mask(mask):
         cv2.drawContours(filled, cnts, -1, 255, thickness=-1)
     return filled
 
-
+# build the entrance mask once from the first frame, assuming it doesn't change.
 def build_entrance_mask(frame):
     """Build entrance mask ONCE (from first frame)."""
     ent_raw = mask_from_overlay_color(frame, CYAN_BGR, TOL_CYAN)
@@ -56,7 +58,8 @@ def build_entrance_mask(frame):
 
     return ent
 
-
+# build the squirrel mask for each frame, which may be smaller and noisier, 
+# so we just do a close+fill.
 def build_squirrel_mask(frame):
     """Build squirrel mask PER FRAME."""
     sq_raw = mask_from_overlay_color(frame, PINK_BGR, TOL_PINK)
@@ -69,6 +72,7 @@ def build_squirrel_mask(frame):
     return sq
 
 
+# Compute minimum distance from squirrel pixels to entrance pixels using distance transform.
 def min_distance_px(entrance_mask, squirrel_mask):
     """Return (dmin, squirrel_point, entrance_point) in pixels."""
     sq_count = int(np.sum(squirrel_mask > 0))
@@ -110,6 +114,7 @@ def min_distance_px(entrance_mask, squirrel_mask):
     return dmin, sq_pt, box_pt, sq_count
 
 
+# Main processing loop: read video, build masks, compute distances, save results.
 def main():
     cap = cv2.VideoCapture(VIDEO_PATH)
     if not cap.isOpened():
@@ -182,6 +187,7 @@ def main():
     writer.release()
     cv2.destroyAllWindows()
 
+    # Save CSV with distances and pixel counts
     pd.DataFrame(rows).to_csv(OUT_CSV, index=False)
     print("Saved:", OUT_VIDEO)
     print("Saved:", OUT_CSV)
