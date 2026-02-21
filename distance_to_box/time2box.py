@@ -1,40 +1,42 @@
+# This module implements a simple ROI tracker based on pixel change detection.
 import cv2
 import numpy as np
 
+# --- Video and window settings ---
 VIDEO_PATH = "trimshort.mp4"  # <-- anpassen
 WINDOW = "Squirrel ROI Tracker | click=init | q=quit | r=reset"
 
-# --- Abspielgeschwindigkeit ---
+#--- Parameters ---
 SLOW_DELAY_MS = 250  # vor dem Klick sehr langsam
 RUN_DELAY_MS  = 100   # nach dem Klick normaler/halbwegs flüssig
 
 # --- ROI / Maske ---
-ROI_RADIUS = 80          # Kreisradius in Pixel
-MIN_CHANGED_PIXELS = 200 # ab wie vielen Pixeln wir "Change" akzeptieren
+ROI_RADIUS = 80          # Circular ROI um den Klickpunkt (Pixel)
+MIN_CHANGED_PIXELS = 200 # threshold: wie viele Pixel müssen sich ändern, damit wir es als Bewegung werten? (höher = weniger sensitiv)
 
 # --- Change Detection ---
-DIFF_THRESHOLD = 18      # Pixel-Schwelle (höher = weniger sensitiv)
-BLUR_K = 5               # Glättung gegen Rauschen (ungerade Zahl)
+DIFF_THRESHOLD = 18      # Pixel-value-Difference, to count as "changed" 
+BLUR_K = 5               
 
 
 state = {
     "initialized": False,
-    "center": None,        # (x,y)
-    "prev_gray": None,     # vorheriges Frame (gray+blur)
+    "center": None,        
+    "prev_gray": None,     
 }
 
-
+# helper functions
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
-
+# helper function to create a filled mask from a contour (optional, not used in main code)
 def make_circular_mask(h, w, center, radius):
     mask = np.zeros((h, w), dtype=np.uint8)
     cx, cy = center
     cv2.circle(mask, (cx, cy), radius, 255, -1)
     return mask
 
-
+# helper function to extract a sub-image (ROI) around a center point, with boundary checks
 def compute_change_centroid(prev_gray, gray_now, mask):
     """
     Gibt zurück:
@@ -65,11 +67,11 @@ def compute_change_centroid(prev_gray, gray_now, mask):
     return changed_count, (cx, cy), diff_bin
 
 
+# --- Main Code ---
 def on_mouse(event, x, y, flags, param):
     if event == cv2.EVENT_LBUTTONDOWN and not state["initialized"]:
         state["initialized"] = True
         state["center"] = (x, y)
-        # prev_gray setzen wir im Loop aus dem aktuellen Frame
         print(f"[Init] center set to: {state['center']}")
 
 
@@ -82,7 +84,7 @@ def draw_overlay(frame, center, radius, diff_bin=None, info_text=""):
         cv2.circle(overlay, center, 4, (0, 0, 255), -1)
 
     if diff_bin is not None:
-        # Change-Pixel grün einfärben (nur zur Visualisierung)
+        # Change-Pixel as green highlighten
         overlay[diff_bin > 0] = (0, 255, 0)
 
     if info_text:
@@ -91,7 +93,7 @@ def draw_overlay(frame, center, radius, diff_bin=None, info_text=""):
 
     return overlay
 
-
+# Compute minimum distance from squirrel pixels to entrance pixels using distance transform.
 def main():
     cap = cv2.VideoCapture(VIDEO_PATH)
     if not cap.isOpened():
@@ -109,14 +111,14 @@ def main():
 
         h, w = frame.shape[:2]
 
-        # --- Vorverarbeitung für Change Detection ---
+        # preprocess
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (BLUR_K, BLUR_K), 0)
 
         key = 0
 
         # -------------------------
-        # Phase 1: warten auf Klick
+        # Phase 1: waiting for click to initialize ROI
         # -------------------------
         if not state["initialized"]:
             # sehr langsames Abspielen
@@ -128,32 +130,32 @@ def main():
         # Phase 2: Tracking
         # -------------------------
         else:
-            # Beim ersten Frame nach Klick: prev_gray initialisieren und einmal "freeze" anzeigen
+            # Click on the squirrel, now we track the ROI based on pixel changes
             if state["prev_gray"] is None:
                 state["prev_gray"] = gray.copy()
                 frozen_init_frame = frame.copy()
 
-                # kurzer Standbild-Moment, damit man die ROI sieht
+                # stop and show initial ROI until next click
                 mask = make_circular_mask(h, w, state["center"], ROI_RADIUS)
                 overlay = draw_overlay(frozen_init_frame, state["center"], ROI_RADIUS, None, "Initialized ROI")
                 cv2.imshow(WINDOW, overlay)
                 key = cv2.waitKey(0) & 0xFF  # warten bis Taste gedrückt (optional)
             else:
-                # Maske um aktuelles Zentrum
+                # update ROI center based on pixel changes
                 mask = make_circular_mask(h, w, state["center"], ROI_RADIUS)
 
                 changed_count, new_center, diff_bin = compute_change_centroid(
                     state["prev_gray"], gray, mask
                 )
 
-                # Wenn Change vorhanden -> ROI Zentrum updaten
+                # If changed_count is above threshold, update center to new_center
                 if new_center is not None:
                     # clamp in Bildgrenzen (normalerweise schon ok)
                     nx = clamp(new_center[0], 0, w - 1)
                     ny = clamp(new_center[1], 0, h - 1)
                     state["center"] = (nx, ny)
 
-                # prev aktualisieren
+                # update previous frame for next iteration
                 state["prev_gray"] = gray.copy()
 
                 info = f"changed_px={changed_count} | center={state['center']}"
